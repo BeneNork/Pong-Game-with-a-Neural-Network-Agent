@@ -1,288 +1,328 @@
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Locale;
 
+/**
+ * 
+ * @author Benedikt Nork
+ *
+ */
+public class NeuralNetwork {
 
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import static java.lang.Math.exp;
-import java.util.Random;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+	private int number_of_input;
+	private int number_of_output;
+	private int number_of_layers; // >= 2; if it ==2, only input and output layer
+	private int neurons_Per_Layer;
+	private double[] network_input; // input value
+	private double[] network_output;// output value
+	private ArrayList<double[][]> layer = new ArrayList<double[][]>();
+	private ArrayList<double[]> layer_output = new ArrayList<double[]>();
 
-public class NeuralNetwork {    
-    protected int layers_amount;
-    private double fits[]; // [genome_index]
-    protected int neurons_amount[]; // [layer_index]. Must be >= 2 (inputs and outputs). This is also used to calculate the synapses amount
-    private double inputs[];
-    protected double neurons[][]; // [layer_index][neuron_index]
-    protected double synapses[][][][]; // [genome_index][layer_index][neuron_index][synapses_index]
-    protected int genomes_per_generation;
-    protected int current_genome = 0;
-    protected int current_generation = 0;
-    private double random_mutation_probability;
-    private double min_weight, max_weight;
-    private String fileName;
-    
-    private SaveLoad save_load;
-//    private LiveView live_view;
-    
-    public NeuralNetwork(int neurons_amount[], int genomes_per_generation, double random_mutation_probability, double min_weight, double max_weight, String fileName) {
-        // Copy costructor parameters
-	this.neurons_amount = neurons_amount;
-	this.genomes_per_generation = genomes_per_generation;
-	this.random_mutation_probability = random_mutation_probability;
-	this.min_weight = min_weight;
-	this.max_weight = max_weight;
-	this.fileName = fileName;
-        
-        layers_amount = neurons_amount.length;
-        
-        // Create fits array
-	fits = new double[genomes_per_generation];
-	
-	// Generate neurons
-	neurons = new double[layers_amount][];
-	for(int i = 0; i < layers_amount; i++) {
-            if(i != layers_amount - 1) {
-                neurons_amount[i]++; // The last neuron is the bias.
-            }
-            neurons[i] = new double[neurons_amount[i]];
+	public int getNumber_of_input() {
+		return number_of_input;
 	}
-        
-        // Set biases to 1
-	for(int i = 0; i < layers_amount - 1; i++) {
-            neurons[i][neurons_amount[i] - 1] = 1;
-	}
-        
-        // Generate synapses
-	synapses = new double[genomes_per_generation][][][];
-	for(int k = 0; k < genomes_per_generation; k++) {
-            synapses[k] = new double[layers_amount - 1][][];
-            for(int i = 0; i < layers_amount - 1; i++) {
-                synapses[k][i] = new double[neurons_amount[i]][];
-                for(int j = 0; j < neurons_amount[i]; j++) {
-                    if(i + 1 != layers_amount - 1) {
-                        synapses[k][i][j] = new double[neurons_amount[i + 1] - 1];
-                    }
-                    else {
-                        synapses[k][i][j] = new double[neurons_amount[i + 1]];
-                    }	
-                }
-            }
-	}
-        
-        try {
-			save_load = new SaveLoad(this, this.fileName);
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}    
-        
-        // If the file exists, load it. Else, init randomly
-        if(save_load.fileExists()) {
-            try {
-                save_load.loadFromFile();
-            }
-            catch(IOException ex) {
-                Logger.getLogger(NeuralNetwork.class.getName()).log(Level.SEVERE, null, ex);
-            }
-        }
-        else {
-            initSynapsesRandomly();
-        }
-    }
-    
-    private void initSynapsesRandomly() {
-        for(int l = 0; l < genomes_per_generation; l++) {
-            for(int i = 0; i < layers_amount - 1; i++) {
-                for(int j = 0; j < neurons_amount[i]; j++) {
-                    int m;                    
-                    if(i + 1 != layers_amount - 1) {
-                        m = neurons_amount[i + 1] - 1;
-                    }
-                    else {
-                        m = neurons_amount[i + 1];
-                    }
-                    for(int k = 0; k < m; k++) {
-                        synapses[l][i][j][k] = randDouble(min_weight, max_weight);
-                    }
-                }
-            }
-        }
-        
-        try {
-            save_load.saveToFile();
-        }
-        catch(FileNotFoundException | UnsupportedEncodingException ex) {
-            Logger.getLogger(NeuralNetwork.class.getName()).log(Level.SEVERE, null, ex);
-        }
-    }
-    
-    public double[] getOutputs(double inputs[]) {
-        // Copy function parameters
-        this.inputs = inputs;
-        
-        setNeuronsValues();
-        
-        // Return outputs
-	return neurons[layers_amount - 1];
-    }
-    
-    public void newGenome(double current_genome_fit) {
-        // Set current genome fit
-	fits[current_genome] = current_genome_fit;
-	
-	// If all genomes have been executed, create a new generation
-	if(current_genome + 1 == genomes_per_generation) {
-            current_genome = 0;
-            newGeneration();
-	}
-	else {
-            current_genome++;
-	}
-        
-//        live_view.updateTitle();
-    }
-    
-    private void newGeneration() {
-        boolean no_progress = true;
-	
-	// Check if the NN made any progress
-	for(int i = 0; i < genomes_per_generation; i++) {
-            if(fits[i] != 0) {
-                no_progress = false;
-                break;
-            }
-	}
-	
-	if(no_progress) {
-            initSynapsesRandomly();
-	}
-	else {
-            crossover();
-	}
-	
-	current_generation++;
-    }
-    
-    private void crossover() {
-        // Sort
-	int j_max;
-	double fit_temp, synapses_temp[][][];
-	for(int i = 0; i < genomes_per_generation - 1; i++) {
-            j_max = i;
-            for(int j = i + 1; j < genomes_per_generation; j++) {
-                if(fits[j] > fits[j_max]) {
-                    j_max = j;
-                }
-            }		
-            if(j_max != i) {
-                fit_temp = fits[i];
-                synapses_temp = synapses[i];
-                fits[i] = fits[j_max];
-                synapses[i] = synapses[j_max];
-                fits[j_max] = fit_temp;
-                synapses[j_max] = synapses_temp;
-            }
-	}
-	
-	// The best genome is now the first. We mix it with all the other genomes
-	double prob_rand;
-	for(int l = 1; l < genomes_per_generation; l++) {
-            for(int i = 0; i < layers_amount - 1; i++) {
-                for(int j = 0; j < neurons_amount[i]; j++) {
-                    int m;
-                    if(i + 1 != layers_amount - 1) {
-                        m = neurons_amount[i + 1] - 1;
-                    }
-                    else {
-                        m = neurons_amount[i + 1];
-                    }
-                    for(int k = 0; k < m; k++) {
-                        // If this genome made any progress, mix it with the first genome or generate a new number randomly or keep the current value
-                        if(fits[l] != 0) {
-                            prob_rand = randDouble(0, 1);
-                            if(prob_rand < random_mutation_probability) {
-                                synapses[l][i][j][k] = randDouble(min_weight, max_weight);
-                            }
-                            else {
-                                prob_rand = randDouble(0, 1);
-                                if(prob_rand < 0.5) {
-                                    synapses[l][i][j][k] = synapses[0][i][j][k];
-                                }
-                                // Else keep the current value (implicit)
-                            }
-                        }
-                        // Else mix it with the first genome or generate a new number randomly
-                        else {
-                            prob_rand = randDouble(0, 1);
-                            if(prob_rand < random_mutation_probability) {
-                                synapses[l][i][j][k] = randDouble(min_weight, max_weight);
-                            }
-                            else {
-                                synapses[l][i][j][k] = synapses[0][i][j][k];
-                            }
-                        }
-                    }
-                }
-            }
-	}
-        
-        try {
-            save_load.saveToFile();
-        }
-        catch(FileNotFoundException | UnsupportedEncodingException ex) {
-            Logger.getLogger(NeuralNetwork.class.getName()).log(Level.SEVERE, null, ex);
-        }
-    }
-    
-    private void setNeuronsValues() {
-        // Copy inputs
-	for(int i = 0; i < neurons_amount[0] - 1; i++) {
-            neurons[0][i] = inputs[i];
-	}
-	
-	// Init the other neurons to 0
-	for(int i = 1; i < layers_amount; i++) {
-            int m;
-            if(i + 1 != layers_amount) {
-                m = neurons_amount[i] - 1;
-            }
-            else {
-                m = neurons_amount[i];
-            }
-            for(int j = 0; j < m; j++) {
-                neurons[i][j] = 0;
-            }
-	}
-	
-	// Multiply neurons and synapses and sum the results (calculate the next neurons values)
-	for(int i = 1; i < layers_amount; i++) {
-            int m;
-            if(i != layers_amount - 1) {
-                m = neurons_amount[i] - 1;
-            }
-            else {
-                m = neurons_amount[i];
-            }
-            for(int j = 0; j < m; j++) {
-                for(int k = 0; k < neurons_amount[i - 1]; k++) {
-                    neurons[i][j] += neurons[i - 1][k] * synapses[current_genome][i - 1][k][j];
-                }
 
-                // Activation function
-                neurons[i][j] = sigmoid(neurons[i][j]);
-            }		
+	public void setNumber_of_input(int number_of_input) {
+		this.number_of_input = number_of_input;
 	}
-        
-//        live_view.panel.repaint();
-    }
-    
-    private double sigmoid(double x) {
-        return 1 / (1 + exp(-x));
-    }
-    
-    private double randDouble(double min, double max) {
-        Random r = new Random();
-        return min + (max - min) * r.nextDouble();
-    }
+
+	public int getNumber_of_output() {
+		return number_of_output;
+	}
+
+	public void setNumber_of_output(int number_of_output) {
+		this.number_of_output = number_of_output;
+	}
+
+	public int getNeurons_Per_Layer() {
+		return neurons_Per_Layer;
+	}
+
+	public void setNeurons_Per_Layer(int neurons_Per_Layer) {
+		this.neurons_Per_Layer = neurons_Per_Layer;
+	}
+
+	public double[] getNetwork_input() {
+		return network_input;
+	}
+
+	public void setNetwork_input(double[] network_input) {
+		this.network_input = network_input;
+	}
+
+	public double[] getNetwork_output() {
+		return network_output;
+	}
+
+	public void setNetwork_output(double[] network_output) {
+		this.network_output = network_output;
+	}
+
+	public int getNumber_of_layers() {
+		return number_of_layers;
+	}
+
+	public void setNumber_of_layers(int number_of_layers) {
+		this.number_of_layers = number_of_layers;
+	}
+
+	public ArrayList<double[][]> getLayer() {
+		return layer;
+	}
+
+	public void setLayer(ArrayList<double[][]> layer) {
+		this.layer = layer;
+	}
+
+	public ArrayList<double[]> getLayer_output() {
+		return layer_output;
+	}
+
+	public void setLayer_output(ArrayList<double[]> layer_output) {
+		this.layer_output = layer_output;
+	}
+
+	/**
+	 * 
+	 * @param number_of_input
+	 * @param number_of_output
+	 * @param neurons_per_layer
+	 * @param number_of_layers
+	 */
+	public NeuralNetwork(int number_of_input, int number_of_output, int number_of_layers, int neurons_per_layer) {
+		setNumber_of_input(number_of_input);
+		setNumber_of_output(number_of_output);
+		setNumber_of_layers(number_of_layers);
+		setNeurons_Per_Layer(neurons_per_layer);
+		
+
+		if (getNumber_of_layers() == 2) {
+			getLayer().add(networkWeights(number_of_input, number_of_output));
+		} else if (getNumber_of_layers() == 3) {
+			getLayer().add(networkWeights(number_of_input, neurons_per_layer));
+			getLayer().add(networkWeights(neurons_per_layer, number_of_output));
+			double[] layer_output = new double[neurons_per_layer];
+			getLayer_output().add(layer_output);
+		} else {
+			getLayer().add(networkWeights(number_of_input, neurons_per_layer));
+			for (int i = 0; i < number_of_layers - 3; i++) {
+				getLayer().add(networkWeights(neurons_per_layer, neurons_per_layer));
+				double[] layer_output = new double[neurons_per_layer];
+				getLayer_output().add(layer_output);
+			}
+			double[] layer_output = new double[neurons_per_layer];
+			getLayer_output().add(layer_output);
+			getLayer().add(networkWeights(neurons_per_layer, number_of_output));
+		}
+	}
+
+	/**
+	 * 
+	 * @param left_neurons
+	 * @param right_neurons
+	 * @return
+	 */
+	public double[][] networkWeights(int left_neurons, int right_neurons) {
+		NumberFormat nf = NumberFormat.getInstance(Locale.US);
+		nf.setMaximumFractionDigits(5);
+		double[][] weights = new double[right_neurons][left_neurons];
+		for (int i = 0; i < left_neurons; i++) {
+			for (int j = 0; j < right_neurons; j++) {
+				String random_string = nf.format((Math.random()*2)-1);
+				if (random_string.equals("0")) {
+					weights[j][i] = 0.1;
+				} else {
+					weights[j][i] = Double.parseDouble(random_string);
+				}
+			}
+		}
+		return weights;
+	}
+
+	
+	public double[] input(double[] input) {
+//		System.out.println("input: "+input[0]+", "+input[1]);
+		setNetwork_input(input);
+		double[] results = null;
+		ArrayList<double[]> layer_output = new ArrayList<double[]>();
+		for (int i = 0; i < getLayer().size(); i++) {
+			double[][] matrix = layer.get(i);
+			results = matrixMultiplication(matrix, input);
+			input = results;
+			if(i < (getLayer().size()-1)) {
+				layer_output.add(results);
+			}
+		}
+		setLayer_output(layer_output);
+		setNetwork_output(results);
+//		System.out.println("output: "+results[0]);
+		return results;
+	}
+
+	/**
+	 * 
+	 * @param matrix
+	 * @param results
+	 * @return
+	 */
+	public double[] matrixMultiplication(double[][] matrix, double[] results) {
+		double[] new_results = new double[matrix.length];
+		for (int i = 0; i < matrix.length; i++) {
+			double res = 0;
+			for (int j = 0; j < matrix[i].length; j++) {
+				res += matrix[i][j] * results[j];
+			}
+			new_results[i] = res;
+		}
+		return sigmoidFunction(new_results);
+	}
+
+	/**
+	 * 
+	 * @param results
+	 * @return
+	 */
+	public double[] sigmoidFunction(double[] results) {
+		NumberFormat nf = NumberFormat.getInstance(Locale.US);
+		nf.setMaximumFractionDigits(5);
+		double[] new_results = new double[results.length];
+		for (int i = 0; i < new_results.length; i++) {
+			// new_results[i] = 1 / (1 + Math.exp(-results[i]));
+			new_results[i] = Double.parseDouble(nf.format(1 / (1 + Math.exp(-results[i]))));
+		}
+		return new_results;
+	}
+	
+	public void training(double[] err) {
+		ArrayList<double[][]> new_weights = new ArrayList<double[][]>();
+		double[] error = err;
+//		System.out.println("error: "+error[0]);
+//		System.out.println("error.length: "+error.length);
+//		System.out.println("layer size: "+getLayer().size());
+		for(int i=getLayer().size()-1;i>=0;i--) {
+			if(i==0){
+				double[] input = getNetwork_input();
+				double[][] matrix = getLayer().get(0);
+				double[][] matrix_transpose = transpose(matrix);
+				double[] sig_sum = matrixMultiplication(matrix, input);
+//				System.out.println("sigsum.lenght: "+sig_sum.length);
+				for(int j=0;j<error.length;j++) {
+					for(int k=0;k<input.length;k++) {
+//						System.out.println("j: "+j+" k: "+k);
+						double e = -error[j]*sig_sum[j]*(1-sig_sum[j])*input[k];
+						e = -(0.3*e);
+//						System.out.println("kante "+(k+1)+","+(j+1)+": "+e);
+						matrix_transpose[k][j] += e;
+					}
+				}
+				new_weights.add(transpose(matrix_transpose));
+				
+			} else {
+				double[] hidden_output = getLayer_output().get(i-1);
+				double[][] matrix = getLayer().get(i);
+				double[][] matrix_transpose = transpose(matrix);
+				double[] sig_sum = matrixMultiplication(matrix, hidden_output);
+				for(int j=0;j<error.length;j++) {
+					for(int k=0;k<hidden_output.length;k++) {
+						double e = -error[j]*sig_sum[j]*(1-sig_sum[j])*hidden_output[k];
+						e = -(0.3*e);
+//						System.out.println("kante "+(k+1)+","+(j+1)+": "+e);
+						matrix_transpose[k][j] += e;
+					}
+				}
+				new_weights.add(transpose(matrix_transpose));
+//				System.out.println(matrix_transpose[0][0]);
+				
+				double[][] error_calc = new double[matrix_transpose.length][matrix_transpose[0].length];
+				double[] error_divisor = new double[matrix_transpose[0].length];
+				matrix_transpose = transpose(matrix);
+				
+				for(int j=0;j<error_divisor.length;j++) {
+					double sum = 0;
+					for(int k=0;k<matrix_transpose.length;k++) {
+//						System.out.println("matrix_transpose "+k+","+j+" = "+matrix_transpose[k][j]);
+						sum += matrix_transpose[k][j];
+//						System.out.println("sum: "+sum);
+					}
+					error_divisor[j] = sum;
+//					System.out.println("error_divisor "+j+": "+error_divisor[j]); 
+				}
+				
+				for(int j=0;j<error_calc.length;j++) {
+					for(int k=0;k<error_calc[0].length;k++) {
+//						System.out.println("matrix_transpose[j][k]/error_divisor[k]: "+matrix_transpose[j][k]+" / "+error_divisor[k]);
+//						System.out.println("error[k]: "+error[k]);
+						error_calc[j][k] = (matrix_transpose[j][k]/error_divisor[k])*error[k];
+//						System.out.println("error_calc[j][k]: "+error_calc[j][k]);
+					}
+				}
+				
+//				System.out.println("--------------------------------------------------------------------------------------------");
+				error = new double[error_calc.length];
+				for(int j=0;j<error_calc.length;j++) {
+					double sum = 0;
+//					System.out.println("sum = null");
+					for(int k=0;k<error_calc[0].length;k++) {
+//						System.out.println("error_calc[j][k]: "+error_calc[j][k]);
+						sum += error_calc[j][k];
+//						System.out.println("sum: "+sum);
+					}
+					error[j] = sum;
+//					System.out.println("error "+j+" = "+error[j]);
+				}
+			}
+		}
+		ArrayList<double[][]> reverse = new ArrayList<double[][]>();
+		for(int i=new_weights.size()-1;i>=0;i--) {
+			reverse.add(new_weights.get(i));
+		}
+		setLayer(reverse);
+	}
+	
+	/**
+	 * 
+	 * @param matrix
+	 * @return
+	 */
+	public double[][] transpose(double[][] matrix) {
+		double[][] transpose_matrix = new double[matrix[0].length][matrix.length];
+		for(int i=0;i<matrix.length;i++) {
+			for(int j=0;j<matrix[i].length;j++) {
+				transpose_matrix[j][i] = matrix[i][j];
+			}
+		}
+		return transpose_matrix;
+	}
+
+	/**
+	 * 
+	 * @param list
+	 */
+	public void printNetwork() {
+		for (int i = 0; i < layer.size(); i++) {
+			double[][] weight_matrix = layer.get(i);
+
+			for (int j = 0; j < weight_matrix.length; j++) {
+				for (int k = 0; k < weight_matrix[j].length; k++) {
+					System.out.print("w" + (k + 1) + "," + (j + 1) + ": " + weight_matrix[j][k]);
+					if (k != (weight_matrix[j].length - 1)) {
+						System.out.print("  /  ");
+					}
+				}
+				System.out.println();
+			}
+			System.out.println("----------------------------------------------------");
+		}
+	}
+	
+	
+	public void save() {
+		
+	}
+	
+	public void load() {
+		
+	}
+	
+	
 }
